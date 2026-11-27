@@ -59,6 +59,41 @@ changing and the log shows `unchanged`.
 | 404 | no feed files yet (normal before 6 pm) | retries next minute |
 | 500 | converted files didn't match the schema | saves `issues`, logs `TELL ANGUS`, retries |
 
+## Results pages
+
+Results and swings at state, region, district and booth level, as sortable tables and dials.
+
+```sh
+export ANALYSIS_TOKEN=...
+python -m vicresults serve --out data --until 23:59     # then open http://127.0.0.1:8000/
+```
+
+`serve` is the poller plus a local web page: it polls once a minute (so don't run `poll` as
+well), keeps the same snapshots and CSVs in `data/`, and the page reloads itself every minute.
+Before 6 pm it shows "Waiting for the first results". To rehearse, add `--sample 7pm` (or
+`10pm`, `final`), or `--file data/latest.json.gz` to show a saved feed without polling.
+`python -m vicresults build --sample 10pm --site site` writes a static copy (`index.html` +
+`data.json`).
+
+Pages: Overview, Regions, Districts, Booths, one page per region and per district, and
+"Baseline and method", which reports how the current feed matched 2022.
+
+### Swings and the 2022 baseline
+
+Swings are against the 2022 `final` sample, fetched once and cached as
+`data/baseline-2022-final.json.gz`. Ids change between elections, so regions and districts are
+matched by name, booths by name within their district, candidates by party key (else registered
+party name; independents by their own name).
+
+- **Like-for-like swing** (default): each reporting booth against the same booth in 2022, and
+  each other vote type (early, postal, absent...) against that type's 2022 result in the same
+  district, weighted by its size in the current count. Booths with no 2022 match are left out.
+- **Vs 2022 final**: current share minus the final 2022 share. Misleading until most votes are in.
+
+Booth rows are ordinary election-day votes only; early and postal votes exist per district by
+vote type. 2CP swing is shown only where the same two parties made the final count in 2022.
+Narracan has no 2022 baseline (its 2022 election was postponed).
+
 ## In Python
 
 ```python
