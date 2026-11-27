@@ -36,6 +36,7 @@ def _cur():
 def test_norm():
     assert norm("Albert Park District") == norm("albert  park") == "albertpark"
     assert norm("North-Eastern Metropolitan Region") == "northeasternmetropolitan"
+    assert norm("South Melbourne Park (HJVC)") == norm("South Melbourne Park")
 
 
 def test_matching_and_swings():

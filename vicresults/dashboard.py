@@ -40,7 +40,9 @@ PARTIES = {
 
 
 def norm(s: str | None) -> str:
-    s = (s or "").lower()
+    """Matching key for a district, region or booth name. Drops "District"/"Region" and
+    bracketed tags such as the VEC's "(HJVC)" for a joint venue's home district."""
+    s = re.sub(r"\([^)]*\)", "", (s or "").lower())
     s = re.sub(r"\b(district|region)\b", "", s)
     return re.sub(r"[^a-z0-9]+", "", s)
 
