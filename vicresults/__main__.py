@@ -5,6 +5,10 @@
   validate [--sample S | --file F]   check a response against the contract
   summary [--sample S | --file F]    print a statewide + district summary
   poll [--out DIR] [--sample S] [--until HH:MM] [--once]
+  serve [--out DIR] [--port N] [--sample S | --file F] [--until HH:MM]
+                                     poll and show the results pages locally
+  build [--sample S | --file F] [--site DIR] [--out DIR]
+                                     write a static copy of the pages
 """
 
 from __future__ import annotations
@@ -81,6 +85,20 @@ def main(argv=None) -> int:
     pl.add_argument("--sample", choices=SAMPLES)
     pl.add_argument("--until", help="Melbourne time HH:MM to stop (next occurrence); default: run until stopped")
     pl.add_argument("--once", action="store_true")
+    sv = sub.add_parser("serve")
+    sv.add_argument("--out", default="data")
+    sv.add_argument("--port", type=int, default=8000)
+    sv.add_argument("--host", default="127.0.0.1")
+    sv.add_argument("--baseline", help="baseline feed file (default: <out>/baseline-2022-final.json.gz, fetched once)")
+    sv.add_argument("--until", help="Melbourne time HH:MM to stop polling")
+    bd = sub.add_parser("build")
+    bd.add_argument("--out", default="data")
+    bd.add_argument("--site", default="site")
+    bd.add_argument("--baseline")
+    for q in (sv, bd):
+        g = q.add_mutually_exclusive_group()
+        g.add_argument("--sample", choices=SAMPLES)
+        g.add_argument("--file")
     args = p.parse_args(argv)
 
     try:
@@ -114,6 +132,26 @@ def main(argv=None) -> int:
                 if until <= n:
                     until += timedelta(days=1)
             return run(Path(args.out), sample=args.sample, until=until, once=args.once)
+        elif args.cmd == "serve":
+            from .poll import now_mel
+            from .serve import serve
+            until = None
+            if args.until:
+                hh, mm = map(int, args.until.split(":"))
+                n = now_mel()
+                until = n.replace(hour=hh, minute=mm, second=0, microsecond=0)
+                if until <= n:
+                    until += timedelta(days=1)
+            return serve(Path(args.out), port=args.port, host=args.host, sample=args.sample,
+                         file=args.file, baseline=args.baseline, until=until)
+        elif args.cmd == "build":
+            from .serve import build_site, load_baseline
+            cur = _load(args)
+            client = None if args.baseline or (Path(args.out) / "baseline-2022-final.json.gz").exists() else AnalysisClient()
+            base, _ = load_baseline(Path(args.out), client, Path(args.baseline) if args.baseline else None)
+            from .dashboard import load_extras
+            build_site(cur, base, Path(args.site), load_extras(Path(args.out)))
+            print(f"wrote {args.site}/index.html and {args.site}/data.json")
     except AnalysisError as e:
         print(f"API error {e}", file=sys.stderr)
         if e.body.get("issues"):
