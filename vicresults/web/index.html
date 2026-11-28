@@ -89,6 +89,16 @@ tbody tr:hover td { background: color-mix(in srgb, var(--track) 45%, transparent
 .map circle { stroke: var(--panel); stroke-width: 1 }
 .map circle.wt { fill: none; stroke: var(--muted); stroke-dasharray: 2 2 }
 .ramp { display: inline-block; width: 120px; height: 10px; border-radius: 2px; vertical-align: middle }
+.feed { display: flex; flex-direction: column; gap: 8px }
+.fi { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; display: grid; grid-template-columns: 4.2em minmax(0, 1fr); gap: 4px 12px; align-items: baseline }
+.fi.tg { border-left: 4px solid var(--accent) }
+.fi .tm { font-family: var(--display); font-stretch: 80%; font-weight: 700; font-size: 18px; font-variant-numeric: tabular-nums }
+.fi .bd { display: flex; flex-direction: column; gap: 4px; min-width: 0 }
+.fi .hd { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline }
+.fi .hd b { font-size: 15px }
+.fi .cs { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; font-variant-numeric: tabular-nums }
+.fi .new { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--panel); background: var(--accent); border-radius: 4px; padding: 0 5px }
+.feedctl { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 13px }
 .targets { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px }
 .targets .dial { border-color: var(--accent) }
 .targets .dial .t a { text-decoration: none }
@@ -284,7 +294,7 @@ function boothRows(ds) {
     var fi = -1, best = -1; d.cands.forEach(function (c, i) { if (aggKey(c.k) === ST.focus && c.v > best) { best = c.v; fi = i; } });
     d.booths.forEach(function (b) {
       var li = 0; b.v.forEach(function (v, i) { if (v > b.v[li]) li = i; });
-      var p = fi >= 0 && b.f ? pct(b.v[fi], b.f) : null, bp = fi >= 0 && b.bv ? pct(b.bv[fi], b.bf) : null;
+      var p = fi >= 0 && b.f ? pct(b.v[fi], b.f) : null, bp = fi >= 0 && b.bv && !d.cands[fi].new ? pct(b.bv[fi], b.bf) : null;
       out.push({ d: d, b: b, p: p, bp: bp, sw: p != null && bp != null ? p - bp : null, lk: b.f ? d.cands[li].k : null, lp: b.f ? pct(b.v[li], b.f) : null, fi: fi });
     });
   }); return out;
@@ -317,7 +327,7 @@ function swingBars(items, k, title) {
 }
 function sec(title, body, extra, note) { return '<section><div class="sec-head"><h3>' + title + "</h3>" + (extra || "") + "</div>" + (note ? '<div class="note">' + note + "</div>" : "") + body + "</section>"; }
 function tabs(cur) {
-  return '<nav class="tabs">' + [["state", "Overview"], ["regions", "Regions"], ["districts", "Districts"], ["booths", "Booths"], ["method", "Baseline and method"]].map(function (t) { return '<a href="#' + t[0] + '"' + (t[0] === cur ? ' class="on" aria-current="page"' : "") + ">" + t[1] + "</a>"; }).join("") + "</nav>";
+  return '<nav class="tabs">' + [["state", "Overview"], ["latest", "Latest booths"], ["regions", "Regions"], ["districts", "Districts"], ["booths", "Booths"], ["method", "Baseline and method"]].map(function (t) { return '<a href="#' + t[0] + '"' + (t[0] === cur ? ' class="on" aria-current="page"' : "") + ">" + t[1] + "</a>"; }).join("") + "</nav>";
 }
 function mainParties(rows, n) { var out = [], seen = {}; if (row(rows, ST.focus)) { out.push(ST.focus); seen[ST.focus] = 1; } rows.forEach(function (r) { if (out.length < n && !seen[r.k] && r.v) { out.push(r.k); seen[r.k] = 1; } }); return out; }
 function swingDials(rows, n, sub) { var ks = mainParties(rows, n), R = swingRange(ks.map(function (k) { return swOf(row(rows, k)); })); return ks.map(function (k) { var r = row(rows, k); return swingDial(k, swOf(r), R, chip(k, pname(k) + " " + p1(r.p) + "%"), sub); }).join(""); }
@@ -388,6 +398,36 @@ function boothMap(rows, title) {
   return '<div class="map"><div class="leg">' + btn + leg + " · size: formal votes · dashed: not in yet</div>" + s + "</div>";
 }
 document.addEventListener("click", function (e) { var b = e.target.closest && e.target.closest("button[data-map]"); if (b) { ST.mapMode = b.getAttribute("data-map"); var y = window.scrollY; render(); window.scrollTo(0, y); } });
+
+/* ---------- latest booths feed ---------- */
+ST.feedTargets = false; ST.feedLimit = 100;
+var SEEN = null; try { SEEN = localStorage.getItem("vrb-seen"); } catch (e) {}
+function hm(t) { var m = /T(\d\d):(\d\d)/.exec(t || ""); return m ? (+m[1] % 12 || 12) + ":" + m[2] + (+m[1] < 12 ? "am" : "pm") : "–"; }
+function vLatest() {
+  var T = (M.meta && M.meta.targets) || {}, tset = {}; (T.districts || []).forEach(function (id) { tset[id] = 1; });
+  (T.regions || []).forEach(function (id) { var r = regById(id); if (r) r.districts.forEach(function (d) { tset[d] = tset[d] || 2; }); });
+  var items = boothRows(M.districts).filter(function (r) { return r.b.f && r.b.t && (!ST.feedTargets || tset[r.d.id]); });
+  items.sort(function (a, b) { return a.b.t < b.b.t ? 1 : a.b.t > b.b.t ? -1 : 0; });
+  var total = items.length, newest = items.length ? items[0].b.t : null, R = swingRange(items.slice(0, ST.feedLimit).map(function (r) { return r.sw; }));
+  var h = tabs("latest") + '<div class="head"><h2>Latest booths</h2><span class="sub">' + n0(total) + " booths reported" + (newest ? ", newest at " + hm(newest) : "") + "</span></div>";
+  h += '<div class="feedctl"><label class="ctl"><input type="checkbox" id="feed-tg"' + (ST.feedTargets ? " checked" : "") + "> Target districts and target-region districts only</label>" + '<span class="note">Newest first, by the time the VEC updated each booth. Swings compare each booth with the same booth in 2022. “New” marks booths that arrived since you last opened this tab.</span></div><div class="feed">';
+  items.slice(0, ST.feedLimit).forEach(function (r) {
+    var d = r.d, b = r.b, order = b.v.map(function (v, i) { return i; }).sort(function (x, y) { return b.v[y] - b.v[x]; }).slice(0, 4);
+    var cs = order.map(function (i) { var c = d.cands[i], p = pct(b.v[i], b.f), q = b.bv ? pct(b.bv[i], b.bf) : null; return chip(c.k, pshort(c.k) + " " + p1(p) + "%") + (q != null && !c.new ? ' <span class="dim">' + sg(p - q) + "</span>" : ""); });
+    if (r.fi >= 0 && order.indexOf(r.fi) < 0) cs.push(chip(ST.focus, pshort(ST.focus) + " " + p1(r.p) + "%") + (r.sw != null ? ' <span class="dim">' + sg(r.sw) + "</span>" : ""));
+    var tcp = "";
+    if (b.tc && d.tcp) { var tp = pct(b.tc[0], b.tc[0] + b.tc[1]), tq = b.btc ? pct(b.btc[0], b.btc[0] + b.btc[1]) : null; tcp = "2CP " + esc(pshort(d.tcp.c[0].k)) + " " + p1(tp) + " v " + esc(pshort(d.tcp.c[1].k)) + " " + p1(100 - tp) + (tq != null && d.tcp.same ? ' <span class="dim">(' + sg(tp - tq) + " to " + esc(pshort(d.tcp.c[0].k)) + ")</span>" : ""); }
+    var isNew = SEEN && b.t > SEEN;
+    h += '<div class="fi' + (tset[d.id] === 1 ? " tg" : "") + '"><div class="tm">' + hm(b.t) + '</div><div class="bd"><div class="hd"><b>' + esc(b.n) + '</b><a class="lnk" href="#d-' + d.id + '">' + esc(d.name) + "</a>" + (isNew ? '<span class="new">New</span>' : "") + '<span class="dim">' + n0(b.f) + " formal" + (b.bf ? " · 2022: " + n0(b.bf) : " · no 2022 match") + "</span>" + '</div><div class="cs">' + cs.join("") + "</div>" + (tcp ? '<div class="cs">' + tcp + "</div>" : "") + "</div></div>";
+  });
+  if (!items.length) h += '<div class="empty">No booths have reported yet.</div>';
+  h += "</div>";
+  if (total > ST.feedLimit) h += '<button class="seg" id="feed-more" style="border-radius:6px;align-self:start">Show 100 more</button>';
+  try { if (newest) localStorage.setItem("vrb-seen", newest); } catch (e) {}
+  return h;
+}
+document.addEventListener("change", function (e) { if (e.target.id === "feed-tg") { ST.feedTargets = e.target.checked; render(); } });
+document.addEventListener("click", function (e) { if (e.target.id === "feed-more") { ST.feedLimit += 100; var y = window.scrollY; render(); window.scrollTo(0, y); } });
 
 /* ---------- views ---------- */
 function vState() {
@@ -517,7 +557,7 @@ function render() {
   var r = route(), h, x;
   if (r.indexOf("d-") === 0 && (x = distById(r.slice(2)))) h = vDistrict(x);
   else if (r.indexOf("r-") === 0 && (x = regById(r.slice(2)))) h = vRegion(x);
-  else if (r === "regions") h = vRegions(); else if (r === "districts") h = vDistricts(); else if (r === "booths") h = vBooths(); else if (r === "method") h = vMethod(); else h = vState();
+  else if (r === "latest") h = vLatest(); else if (r === "regions") h = vRegions(); else if (r === "districts") h = vDistricts(); else if (r === "booths") h = vBooths(); else if (r === "method") h = vMethod(); else h = vState();
   var act = document.activeElement, aid = act && act.id, pos = aid && act.selectionStart;
   app.innerHTML = h;
   if (aid && $(aid) && aid.indexOf("f-") === 0) { $(aid).focus(); try { $(aid).setSelectionRange(pos, pos); } catch (e) {} }

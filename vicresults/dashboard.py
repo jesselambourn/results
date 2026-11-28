@@ -220,6 +220,8 @@ def _district(c, bc, L: Labels, expected_booths: list[str], stats: dict, ex: dic
         bname = p["pollingPlaceIdentifier"].get("name") or ""
         seen.add(norm(bname))
         row = {"n": bname, "f": f, "inf": _votes(pfp.get("informal")), "v": v}
+        if f and (p.get("updated") or pfp.get("updated")):
+            row["t"] = p.get("updated") or pfp.get("updated")
         put_xy(row, p["pollingPlaceIdentifier"])
         ptc = {x["candidateIdentifier"]["id"]: _votes(x) for x in (p.get("twoCandidatePreferred") or {}).get("candidate") or []}
         if tcp and sum(ptc.get(i, 0) for i in tcp_ids):
