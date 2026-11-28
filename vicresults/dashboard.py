@@ -39,6 +39,16 @@ PARTIES = {
 }
 
 
+# Sub-areas of the Northern and Western Metropolitan regions, used by the area filter.
+# Override with data/areas.json: {"Area name": ["District", ...], ...}
+AREAS = {
+    "Inner North": ["Brunswick", "Essendon", "Melbourne", "Northcote", "Pascoe Vale", "Preston", "Richmond"],
+    "Outer North": ["Broadmeadows", "Greenvale", "Kalkallo", "Thomastown"],
+    "Inner West": ["Footscray", "Niddrie", "St Albans", "Williamstown"],
+    "Outer West": ["Kororoit", "Laverton", "Point Cook", "Sunbury", "Sydenham", "Tarneit", "Werribee"],
+}
+
+
 def norm(s: str | None) -> str:
     """Matching key for a district, region or booth name. Drops "District"/"Region" and
     bracketed tags such as the VEC's "(HJVC)" for a joint venue's home district."""
@@ -542,7 +552,7 @@ def build_model(cur: dict[str, Any], base: dict[str, Any] | None, status: str | 
             ubvotes[k] += n
         ubformal += bf
 
-    districts, parts = [], []
+    districts, parts, dparts = [], [], {}
     for c in _lh(cur):
         nm = norm((c.get("pollingDistrictIdentifier") or {}).get("name") or c["contestIdentifier"]["contestName"])
         if nm not in bdist and base:
@@ -551,6 +561,7 @@ def build_model(cur: dict[str, Any], base: dict[str, Any] | None, status: str | 
         d["region"] = src2id.get(d.pop("regionId"))
         districts.append(d)
         parts.append((like, v, bv, bf))
+        dparts[d["id"]] = (d, (like, v, bv, bf))
         rparts.setdefault(d["region"], []).append((d, (like, v, bv, bf)))
     districts.sort(key=lambda d: d["name"])
     for r in regions:
@@ -558,6 +569,12 @@ def build_model(cur: dict[str, Any], base: dict[str, Any] | None, status: str | 
         r["districts"] = sorted(d["id"] for d, _ in mine)
         r["lower"] = _lower_summary([d for d, _ in mine], [p for _, p in mine])
     regions.sort(key=lambda r: r["name"])
+    areas = []
+    for aname, members in (ex.get("areas") or AREAS).items():
+        mine = [dparts[norm(x)] for x in members if norm(x) in dparts]
+        if mine:
+            areas.append({"id": norm(aname), "name": aname, "districts": sorted(d["id"] for d, _ in mine),
+                          "lower": _lower_summary([d for d, _ in mine], [p for _, p in mine])})
 
     uformal = sum(r["upper"]["formal"] for r in regions)
     state_upper = {
@@ -585,6 +602,7 @@ def build_model(cur: dict[str, Any], base: dict[str, Any] | None, status: str | 
         "parties": L.names,
         "state": {"lower": _lower_summary(districts, parts), "upper": state_upper},
         "regions": regions,
+        "areas": areas,
         "districts": districts,
     }
 
@@ -623,6 +641,9 @@ def load_extras(folder) -> dict[str, Any]:
                 d2, b2 = norm(r.get("match2022_district")), norm(r.get("match2022_location"))
                 if d2 == d and b2 and b2 != b:
                     ex["alias"][(d, b)] = b2
+    a = folder / "areas.json"
+    if a.exists():
+        ex["areas"] = json.loads(a.read_text())
     t = folder / "targets.json"
     if t.exists():
         ex["targets"] = json.loads(t.read_text())

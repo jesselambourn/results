@@ -118,6 +118,7 @@ details.method p { max-width: 75ch; margin: 8px 0 0 }
   <h1><a href="#state" style="text-decoration:none">Vic Results Board</a></h1>
   <div class="controls">
     <label class="ctl">Go to <select id="jump" aria-label="Go to region or district"></select></label>
+    <label class="ctl">Area <select id="area" aria-label="Area"></select></label>
     <label class="ctl">Focus party <select id="focus"></select></label>
     <span class="seg-g" role="group" aria-label="Swing method">
       <button class="seg" id="mode-sw" title="Compare what has been counted with the same booths and vote types in 2022">Like-for-like swing</button><button class="seg" id="mode-raw" title="Current share minus the final 2022 share">Vs 2022 final</button>
@@ -132,8 +133,8 @@ details.method p { max-width: 75ch; margin: 8px 0 0 }
 <script>
 "use strict";
 var M = null, ST = { focus: "socialists", mode: "sw", sort: {}, filter: {}, tables: {} };
-try { var sv = JSON.parse(localStorage.getItem("vrb") || "{}"); if (sv.focus) ST.focus = sv.focus; if (sv.mode) ST.mode = sv.mode; } catch (e) {}
-function save() { try { localStorage.setItem("vrb", JSON.stringify({ focus: ST.focus, mode: ST.mode })); } catch (e) {} }
+try { var sv = JSON.parse(localStorage.getItem("vrb") || "{}"); if (sv.focus) ST.focus = sv.focus; if (sv.mode) ST.mode = sv.mode; if (sv.area) ST.area = sv.area; } catch (e) {}
+function save() { try { localStorage.setItem("vrb", JSON.stringify({ focus: ST.focus, mode: ST.mode, area: ST.area || "" })); } catch (e) {} }
 var $ = function (id) { return document.getElementById(id); };
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
 function n0(v) { return v == null ? "–" : Math.round(v).toLocaleString("en-AU"); }
@@ -406,10 +407,10 @@ function hm(t) { var m = /T(\d\d):(\d\d)/.exec(t || ""); return m ? (+m[1] % 12 
 function vLatest() {
   var T = (M.meta && M.meta.targets) || {}, tset = {}; (T.districts || []).forEach(function (id) { tset[id] = 1; });
   (T.regions || []).forEach(function (id) { var r = regById(id); if (r) r.districts.forEach(function (d) { tset[d] = tset[d] || 2; }); });
-  var items = boothRows(M.districts).filter(function (r) { return r.b.f && r.b.t && (!ST.feedTargets || tset[r.d.id]); });
+  var items = boothRows(areaDistricts()).filter(function (r) { return r.b.f && r.b.t && (!ST.feedTargets || tset[r.d.id]); });
   items.sort(function (a, b) { return a.b.t < b.b.t ? 1 : a.b.t > b.b.t ? -1 : 0; });
   var total = items.length, newest = items.length ? items[0].b.t : null, R = swingRange(items.slice(0, ST.feedLimit).map(function (r) { return r.sw; }));
-  var h = tabs("latest") + '<div class="head"><h2>Latest booths</h2><span class="sub">' + n0(total) + " booths reported" + (newest ? ", newest at " + hm(newest) : "") + "</span></div>";
+  var h = tabs("latest") + '<div class="head"><h2>Latest booths</h2><span class="sub">' + areaNote() + n0(total) + " booths reported" + (newest ? ", newest at " + hm(newest) : "") + "</span></div>";
   h += '<div class="feedctl"><label class="ctl"><input type="checkbox" id="feed-tg"' + (ST.feedTargets ? " checked" : "") + "> Target districts and target-region districts only</label>" + '<span class="note">Newest first, by the time the VEC updated each booth. Swings compare each booth with the same booth in 2022. “New” marks booths that arrived since you last opened this tab.</span></div><div class="feed">';
   items.slice(0, ST.feedLimit).forEach(function (r) {
     var d = r.d, b = r.b, order = b.v.map(function (v, i) { return i; }).sort(function (x, y) { return b.v[y] - b.v[x]; }).slice(0, 4);
@@ -430,13 +431,20 @@ document.addEventListener("change", function (e) { if (e.target.id === "feed-tg"
 document.addEventListener("click", function (e) { if (e.target.id === "feed-more") { ST.feedLimit += 100; var y = window.scrollY; render(); window.scrollTo(0, y); } });
 
 /* ---------- views ---------- */
+/* ---------- area filter ---------- */
+function curArea() { if (!ST.area || !M.areas) return null; for (var i = 0; i < M.areas.length; i++) if (M.areas[i].id === ST.area) return M.areas[i]; return null; }
+function inArea(d) { var a = curArea(); return !a || a.districts.indexOf(d.id) >= 0; }
+function areaDistricts() { return M.districts.filter(inArea); }
+function areaNote() { var a = curArea(); return a ? '<span class="pill">' + esc(a.name) + "</span> " : ""; }
+
 function vState() {
-  var lo = M.state.lower, up = M.state.upper, f = ST.focus;
-  var h = tabs("state") + '<div class="head"><h2>Victoria</h2><span class="sub">' + n0(lo.total) + " lower house votes counted · " + lo.seatsIn + " of " + lo.n + " districts reporting</span></div>";
+  var A = curArea(), lo = A ? A.lower : M.state.lower, up = M.state.upper, f = ST.focus, ds = areaDistricts();
+  var h = tabs("state") + '<div class="head"><h2>' + (A ? esc(A.name) : "Victoria") + '</h2><span class="sub">' + (A ? esc(ds.map(function (d) { return d.name; }).join(", ")) + " · " : "") + n0(lo.total) + " lower house votes counted · " + lo.seatsIn + " of " + lo.n + " districts reporting</span></div>";
   h += targetsSection();
   h += sec("Lower house", '<div class="dials">' + countDial(lo) + swingDials(lo.rows, 5) + "</div>", "", "Dials show the first preference swing since 2022, in percentage points. " + (ST.mode === "sw" ? "Like-for-like: only booths and vote types counted so far, against the same ones in 2022." : "Current share minus the final 2022 share. Early in the count this mostly reflects which booths are in."));
   h += sec("Lower house first preferences", partyTable("s-lo", lo.rows, lo, true));
-  var swb = sec(esc(pname(f)) + " by district", swingBars(M.districts.map(function (d) { var c = dFocus(d); return { n: d.name, sw: d.formal ? swOf(c) : null, tip: c ? p1(c.p) + "% now" : "" }; }), f, "Swing by district") || '<div class="empty">No district has a ' + esc(pname(f)) + " swing to show yet.</div>", "", "First preference swing in each district where " + esc(pname(f)) + " is standing and votes are in (" + swLabel() + ").");
+  var swb = sec(esc(pname(f)) + " by district", swingBars(ds.map(function (d) { var c = dFocus(d); return { n: d.name, sw: d.formal ? swOf(c) : null, tip: c ? p1(c.p) + "% now" : "" }; }), f, "Swing by district") || '<div class="empty">No district has a ' + esc(pname(f)) + " swing to show yet.</div>", "", "First preference swing in each district where " + esc(pname(f)) + " is standing and votes are in (" + swLabel() + ").");
+  if (A) return h + swb + '<div class="note">The upper house is counted by region, so it isn\'t split by area. Pick "All Victoria" or open a region page to see it.</div>';
   h += swb + sec("Upper house", '<div class="dials">' + countDial(up, "Upper house counted") + swingDials(up.rows, 5) + "</div>" + partyTable("s-up", up.rows, up));
   return h;
 }
@@ -462,11 +470,12 @@ function vRegions() {
     sec(esc(pname(f)) + " upper house swing by region", swingBars(M.regions.map(function (r) { var x = row(r.upper.rows, f); return { n: r.name, sw: r.upper.formal ? swOf(x) : null, tip: x ? p1(x.p) + "% now" : "" }; }), f, "Upper house swing by region") || '<div class="empty">No upper house swing to show yet.</div>');
 }
 function vDistricts() {
-  return tabs("districts") + '<div class="head"><h2>Districts</h2><span class="sub">All ' + M.districts.length + " lower house districts</span></div>" + sec("Every district", districtTable("dists", M.districts), filterBox("dists", "Filter by district, region or party"), "Click a column heading to sort. “Change” marks a district where the party ahead is not the party that won in 2022.");
+  var ds = areaDistricts(), A = curArea();
+  return tabs("districts") + '<div class="head"><h2>Districts</h2><span class="sub">' + areaNote() + (A ? ds.length + " districts in " + esc(A.name) : "All " + ds.length + " lower house districts") + "</span></div>" + sec("Every district", districtTable("dists", ds), filterBox("dists", "Filter by district, region or party"), "Click a column heading to sort. “Change” marks a district where the party ahead is not the party that won in 2022.");
 }
 function vBooths() {
-  var rows = boothRows(M.districts).filter(function (r) { return !r.b.w; });
-  return tabs("booths") + '<div class="head"><h2>Booths</h2><span class="sub">' + n0(rows.length) + " election day booths reporting, lower house first preferences</span></div>" +
+  var rows = boothRows(areaDistricts()).filter(function (r) { return !r.b.w; });
+  return tabs("booths") + '<div class="head"><h2>Booths</h2><span class="sub">' + areaNote() + n0(rows.length) + " election day booths reporting, lower house first preferences</span></div>" +
     sec("Every reporting booth", boothTable("booths", rows, true), filterBox("booths", "Filter by booth or district"), "Booth figures are ordinary votes cast at that booth on election day. Early, postal and absent votes are counted by district, so they appear on the district pages by vote type.");
 }
 function vRegion(r) {
@@ -564,6 +573,7 @@ function render() {
   fillControls(); fillStatus();
 }
 function fillControls() {
+  var ar = $("area"); ar.innerHTML = '<option value="">All Victoria</option>' + (M.areas || []).map(function (a) { return '<option value="' + esc(a.id) + '"' + (a.id === ST.area ? " selected" : "") + ">" + esc(a.name) + "</option>"; }).join("");
   var f = $("focus"), ks = {}, opts;
   M.state.lower.rows.concat(M.state.upper.rows).forEach(function (r) { ks[r.k] = (ks[r.k] || 0) + r.v; });
   if (!ks[ST.focus]) ks[ST.focus] = 0;
@@ -587,6 +597,7 @@ function fillStatus() {
   if (LIVE.err) s.push('<span class="pill warn">' + esc(LIVE.err) + "</span>");
   $("status").innerHTML = s.join(" · ") || "Loading results…";
 }
+$("area").addEventListener("change", function (e) { ST.area = e.target.value; ST.sort = {}; save(); render(); });
 $("focus").addEventListener("change", function (e) { ST.focus = e.target.value; ST.sort = {}; save(); render(); });
 $("jump").addEventListener("change", function (e) { location.hash = "#" + e.target.value; });
 $("mode-sw").addEventListener("click", function () { ST.mode = "sw"; save(); render(); });
