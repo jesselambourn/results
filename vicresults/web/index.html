@@ -364,6 +364,7 @@ function targetsSection() {
     }), (x && r.upper.formal ? sg(swOf(x)) + " swing · " : "") + p1(pct(r.upper.total, r.upper.enrol)) + "% counted · dashes: one quota"));
   });
   if (!cards.length) return "";
+  if (M.meta && M.meta.scope) return sec("Upper house quotas", '<div class="targets">' + cards.join("") + "</div>", "", esc(pname(f)) + " upper house quotas from first preferences in each region. Open a region for its groups and booths.");
   return sec("Targets", '<div class="targets">' + cards.join("") + "</div>", "", esc(pname(f)) + " first preferences in each target district, and upper house quotas in each target region.");
 }
 
@@ -439,12 +440,12 @@ function areaNote() { var a = curArea(); return a ? '<span class="pill">' + esc(
 
 function vState() {
   var A = curArea(), lo = A ? A.lower : M.state.lower, up = M.state.upper, f = ST.focus, ds = areaDistricts();
-  var h = tabs("state") + '<div class="head"><h2>' + (A ? esc(A.name) : "Victoria") + '</h2><span class="sub">' + (A ? esc(ds.map(function (d) { return d.name; }).join(", ")) + " · " : "") + n0(lo.total) + " lower house votes counted · " + lo.seatsIn + " of " + lo.n + " districts reporting</span></div>";
+  var h = tabs("state") + '<div class="head"><h2>' + (A ? esc(A.name) : esc(homeName())) + '</h2><span class="sub">' + (A ? esc(ds.map(function (d) { return d.name; }).join(", ")) + " · " : "") + n0(lo.total) + " lower house votes counted · " + lo.seatsIn + " of " + lo.n + " districts reporting</span></div>";
   h += targetsSection();
   h += sec("Lower house", '<div class="dials">' + countDial(lo) + swingDials(lo.rows, 5) + "</div>", "", "Dials show the first preference swing since 2022, in percentage points. " + (ST.mode === "sw" ? "Like-for-like: only booths and vote types counted so far, against the same ones in 2022." : "Current share minus the final 2022 share. Early in the count this mostly reflects which booths are in."));
   h += sec("Lower house first preferences", partyTable("s-lo", lo.rows, lo, true));
   var swb = sec(esc(pname(f)) + " by district", swingBars(ds.map(function (d) { var c = dFocus(d); return { n: d.name, sw: d.formal ? swOf(c) : null, tip: c ? p1(c.p) + "% now" : "" }; }), f, "Swing by district") || '<div class="empty">No district has a ' + esc(pname(f)) + " swing to show yet.</div>", "", "First preference swing in each district where " + esc(pname(f)) + " is standing and votes are in (" + swLabel() + ").");
-  if (A) return h + swb + '<div class="note">The upper house is counted by region, so it isn\'t split by area. Pick "All Victoria" or open a region page to see it.</div>';
+  if (A) return h + swb + '<div class="note">The upper house is counted by region, so it isn\'t split by area. Pick "All ' + esc(homeName()) + '" or open a region page to see it.</div>';
   h += swb + sec("Upper house", '<div class="dials">' + countDial(up, "Upper house counted") + swingDials(up.rows, 5) + "</div>" + partyTable("s-up", up.rows, up));
   return h;
 }
@@ -480,7 +481,7 @@ function vBooths() {
 }
 function vRegion(r) {
   var f = ST.focus, u = r.upper, fr = row(u.rows, f) || u.rows[0], ds = r.districts.map(distById).filter(Boolean);
-  var h = '<div class="head"><div><h2>' + esc(r.name) + ' Region</h2><div class="crumbs"><a class="lnk" href="#state">Victoria</a> › <a class="lnk" href="#regions">Regions</a> › ' + esc(r.name) + '</div></div><span class="sub">' + n0(u.total) + " upper house votes counted · " + u.positions + " seats" + (u.quota ? " · quota " + n0(u.quota) + " (" + esc(u.quotaSrc) + ")" : "") + "</span></div>";
+  var h = '<div class="head"><div><h2>' + esc(r.name) + ' Region</h2><div class="crumbs"><a class="lnk" href="#state">' + esc(homeName()) + '</a> › <a class="lnk" href="#regions">Regions</a> › ' + esc(r.name) + '</div></div><span class="sub">' + n0(u.total) + " upper house votes counted · " + u.positions + " seats" + (u.quota ? " · quota " + n0(u.quota) + " (" + esc(u.quotaSrc) + ")" : "") + "</span></div>";
   h += sec("Upper house", '<div class="dials">' + countDial(u) + (fr ? quotaDial(fr, u.positions) : "") + swingDials(u.rows, 4) + "</div>" + partyTable("r-up", u.rows, u, false, true));
   h += sec("Lower house across the region", '<div class="dials">' + countDial(r.lower, "Lower house counted") + swingDials(r.lower.rows, 4) + "</div>" + partyTable("r-lo", r.lower.rows, r.lower, true), "", "The 11 lower house districts in this region, added together.");
   h += sec("Booth map", boothMap(boothRows(ds), r.name + " booths") || '<div class="empty">No booth locations yet.</div>', "", "Lower house election day booths in this region's districts. Hover a dot for its numbers.");
@@ -502,7 +503,7 @@ function vRegion(r) {
 function vDistrict(d) {
   var reg = regById(d.region), fc = dFocus(d), f = fc ? fc.k : null, max = 0;
   d.cands.forEach(function (c) { max = Math.max(max, c.p || 0, c.bp || 0); });
-  var h = '<div class="head"><div><h2>' + esc(d.name) + '</h2><div class="crumbs"><a class="lnk" href="#state">Victoria</a> › ' + (reg ? '<a class="lnk" href="#r-' + reg.id + '">' + esc(reg.name) + "</a> › " : "") + '<a class="lnk" href="#districts">Districts</a> › ' + esc(d.name) + '</div></div><span class="sub">' + n0(d.total) + " of " + n0(d.enrol) + " enrolled counted" + (d.declared ? ' · <span class="pill">Declared</span>' : "") + (d.hasBase ? "" : ' · <span class="pill warn">No 2022 result to compare</span>') + "</span></div>";
+  var h = '<div class="head"><div><h2>' + esc(d.name) + '</h2><div class="crumbs"><a class="lnk" href="#state">' + esc(homeName()) + '</a> › ' + (reg ? '<a class="lnk" href="#r-' + reg.id + '">' + esc(reg.name) + "</a> › " : "") + '<a class="lnk" href="#districts">Districts</a> › ' + esc(d.name) + '</div></div><span class="sub">' + n0(d.total) + " of " + n0(d.enrol) + " enrolled counted" + (d.declared ? ' · <span class="pill">Declared</span>' : "") + (d.hasBase ? "" : ' · <span class="pill warn">No 2022 result to compare</span>') + "</span></div>";
   var top = d.cands.slice().sort(function (a, b) { return b.v - a.v; }), show = [];
   if (fc) show.push(fc); top.forEach(function (c) { if (show.length < 5 && show.indexOf(c) < 0 && d.formal) show.push(c); });
   var R = swingRange(show.map(swOf));
@@ -558,6 +559,11 @@ function vMethod() {
 }
 
 /* ---------- shell ---------- */
+function homeName() { return (M && M.meta && M.meta.scope && M.meta.scope.name) || "Victoria"; }
+function applyScope() {
+  var t = (M && M.meta && M.meta.scope && M.meta.scope.title) || "Vic Results Board", h = document.querySelector("h1 a");
+  document.title = t; if (h) h.textContent = t;
+}
 function route() { return (location.hash || "#state").slice(1); }
 function render() {
   var app = $("app");
@@ -573,14 +579,14 @@ function render() {
   fillControls(); fillStatus();
 }
 function fillControls() {
-  var ar = $("area"); ar.innerHTML = '<option value="">All Victoria</option>' + (M.areas || []).map(function (a) { return '<option value="' + esc(a.id) + '"' + (a.id === ST.area ? " selected" : "") + ">" + esc(a.name) + "</option>"; }).join("");
+  var ar = $("area"); ar.innerHTML = '<option value="">All ' + esc(homeName()) + '</option>' + (M.areas || []).map(function (a) { return '<option value="' + esc(a.id) + '"' + (a.id === ST.area ? " selected" : "") + ">" + esc(a.name) + "</option>"; }).join("");
   var f = $("focus"), ks = {}, opts;
   M.state.lower.rows.concat(M.state.upper.rows).forEach(function (r) { ks[r.k] = (ks[r.k] || 0) + r.v; });
   if (!ks[ST.focus]) ks[ST.focus] = 0;
   opts = Object.keys(ks).filter(function (k) { return k !== "ung" && M.parties[k]; }).sort(function (a, b) { return (KNOWN[b] ? 1 : 0) - (KNOWN[a] ? 1 : 0) || ks[b] - ks[a]; });
   f.innerHTML = opts.map(function (k) { return '<option value="' + esc(k) + '"' + (k === ST.focus ? " selected" : "") + ">" + esc(pname(k)) + "</option>"; }).join("");
   var j = $("jump"), r = route();
-  j.innerHTML = '<option value="state">Victoria</option><optgroup label="Regions">' + M.regions.map(function (x) { return '<option value="r-' + x.id + '"' + (r === "r-" + x.id ? " selected" : "") + ">" + esc(x.name) + "</option>"; }).join("") + '</optgroup><optgroup label="Districts">' + M.districts.map(function (x) { return '<option value="d-' + x.id + '"' + (r === "d-" + x.id ? " selected" : "") + ">" + esc(x.name) + "</option>"; }).join("") + "</optgroup>";
+  j.innerHTML = '<option value="state">' + esc(homeName()) + '</option><optgroup label="Regions">' + M.regions.map(function (x) { return '<option value="r-' + x.id + '"' + (r === "r-" + x.id ? " selected" : "") + ">" + esc(x.name) + "</option>"; }).join("") + '</optgroup><optgroup label="Districts">' + M.districts.map(function (x) { return '<option value="d-' + x.id + '"' + (r === "d-" + x.id ? " selected" : "") + ">" + esc(x.name) + "</option>"; }).join("") + "</optgroup>";
   $("mode-sw").className = "seg" + (ST.mode === "sw" ? " on" : ""); $("mode-raw").className = "seg" + (ST.mode === "raw" ? " on" : "");
   $("mode-sw").setAttribute("aria-pressed", ST.mode === "sw"); $("mode-raw").setAttribute("aria-pressed", ST.mode === "raw");
 }
@@ -608,7 +614,7 @@ function load() {
   fetch("data.json", { cache: "no-store" }).then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }).then(function (d) {
     LIVE.fetched = new Date(); LIVE.err = null;
     var gen = d.meta && (d.meta.generated + "|" + JSON.stringify(d.meta.files || ""));
-    if (gen !== lastGen) { lastGen = gen; M = d; render(); } else fillStatus();
+    if (gen !== lastGen) { lastGen = gen; M = d; applyScope(); render(); } else fillStatus();
   }).catch(function (e) { LIVE.err = "Could not load results (" + e.message + "). Trying again in a minute."; if (!M) $("app").innerHTML = '<div class="empty">' + esc(LIVE.err) + "</div>"; fillStatus(); });
   fetch("status.json", { cache: "no-store" }).then(function (r) { return r.ok ? r.json() : null; }).then(function (s) { if (s && s.status) { LIVE.status = s.status; fillStatus(); } }).catch(function () {});
 }

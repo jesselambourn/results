@@ -537,8 +537,14 @@ def build_model(cur: dict[str, Any], base: dict[str, Any] | None, status: str | 
     unmatched_regions, unmatched_districts = [], []
     ulike_all, uvotes, ubvotes, ubformal = Like(), defaultdict(int), defaultdict(int), 0
     gnames: dict[int, str] = {}
+    scope = ex.get("scope") or {}
+    keep = {norm(x) for x in scope.get("regions") or []}
+    keep_src: set = set()
     for c in _uh(cur):
         nm = norm((c.get("pollingDistrictIdentifier") or {}).get("name") or c["contestIdentifier"]["contestName"])
+        if keep and nm not in keep:
+            continue
+        keep_src.add((c.get("pollingDistrictIdentifier") or {}).get("id"))
         if nm not in breg and base:
             unmatched_regions.append(c["contestIdentifier"]["contestName"])
         r, like, v, bv, bf = _region(c, breg.get(nm), L, gnames, stats)
@@ -555,6 +561,8 @@ def build_model(cur: dict[str, Any], base: dict[str, Any] | None, status: str | 
     districts, parts, dparts = [], [], {}
     for c in _lh(cur):
         nm = norm((c.get("pollingDistrictIdentifier") or {}).get("name") or c["contestIdentifier"]["contestName"])
+        if keep and (c.get("pollingDistrictIdentifier") or {}).get("regionId") not in keep_src:
+            continue
         if nm not in bdist and base:
             unmatched_districts.append(c["contestIdentifier"]["contestName"])
         d, like, v, bv, bf = _district(c, bdist.get(nm), L, expected.get(nm, []), stats, ex)
@@ -570,7 +578,10 @@ def build_model(cur: dict[str, Any], base: dict[str, Any] | None, status: str | 
         r["lower"] = _lower_summary([d for d, _ in mine], [p for _, p in mine])
     regions.sort(key=lambda r: r["name"])
     areas = []
-    for aname, members in (ex.get("areas") or AREAS).items():
+    area_defs = ex.get("areas") or AREAS
+    if keep:  # a scoped page: one area per region in scope
+        area_defs = {r["name"]: r["districts"] for r in regions}
+    for aname, members in area_defs.items():
         mine = [dparts[norm(x)] for x in members if norm(x) in dparts]
         if mine:
             areas.append({"id": norm(aname), "name": aname, "districts": sorted(d["id"] for d, _ in mine),
@@ -593,7 +604,8 @@ def build_model(cur: dict[str, Any], base: dict[str, Any] | None, status: str | 
             "baseline": (bhf.get("eventIdentifier") or {}).get("eventName") if base else None,
             "baselineFile": (base.get("files") or {}).get("lowerHouse") if base else None,
             "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"), "status": status,
-            "targets": {k: [norm(x) for x in v] for k, v in (ex.get("targets") or {}).items()},
+            "targets": {k: [norm(x) for x in v] for k, v in (scope.get("targets") or ex.get("targets") or {}).items()},
+            "scope": {"title": scope.get("title"), "name": scope.get("name")} if keep else None,
             "match": {"districts": len(districts), "districtsUnmatched": unmatched_districts,
                       "regionsUnmatched": unmatched_regions,
                       "booths": stats["booths"], "boothsMatched": stats["boothsMatched"],
