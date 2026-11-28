@@ -8,3 +8,4 @@ data/
 !tests/fixtures/*.json
 .env
 site/
+site-*/
