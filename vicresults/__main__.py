@@ -149,7 +149,8 @@ def main(argv=None) -> int:
             cur = _load(args)
             client = None if args.baseline or (Path(args.out) / "baseline-2022-final.json.gz").exists() else AnalysisClient()
             base, _ = load_baseline(Path(args.out), client, Path(args.baseline) if args.baseline else None)
-            build_site(cur, base, Path(args.site))
+            from .dashboard import load_extras
+            build_site(cur, base, Path(args.site), load_extras(Path(args.out)))
             print(f"wrote {args.site}/index.html and {args.site}/data.json")
     except AnalysisError as e:
         print(f"API error {e}", file=sys.stderr)

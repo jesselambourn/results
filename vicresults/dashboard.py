@@ -43,7 +43,7 @@ def norm(s: str | None) -> str:
     """Matching key for a district, region or booth name. Drops "District"/"Region" and
     bracketed tags such as the VEC's "(HJVC)" for a joint venue's home district."""
     s = re.sub(r"\([^)]*\)", "", (s or "").lower())
-    s = re.sub(r"\b(district|region)\b", "", s)
+    s = re.sub(r"\b(district|region|h?jvc)\b", "", s)
     return re.sub(r"[^a-z0-9]+", "", s)
 
 
@@ -168,7 +168,7 @@ def _tcp(c):
     return cands if len(cands) == 2 else []
 
 
-def _district(c, bc, L: Labels, expected_booths: list[str], stats: dict):
+def _district(c, bc, L: Labels, expected_booths: list[str], stats: dict, ex: dict | None = None):
     fp = c["firstPreferences"]
     cands = fp.get("candidate") or []
     ck = lambda x: L.cand(x["candidateIdentifier"])
@@ -184,6 +184,21 @@ def _district(c, bc, L: Labels, expected_booths: list[str], stats: dict):
     bformal = _votes(bfp.get("formal"))
     bvotes = _by_key(bcands, ck)
     bbooths = {norm(p["pollingPlaceIdentifier"].get("name")): p for p in _pp(bc or {})}
+    ex = ex or {}
+    dn = norm((c.get("pollingDistrictIdentifier") or {}).get("name") or c["contestIdentifier"]["contestName"])
+    alias = ex.get("alias") or {}
+    coords = ex.get("coords") or {}
+
+    def base_booth(bname):
+        k = norm(bname)
+        return bbooths.get(k) or bbooths.get(alias.get((dn, k), ""))
+
+    def put_xy(row, ppi=None):
+        la, lo = (ppi or {}).get("latitude"), (ppi or {}).get("longitude")
+        if la is None or lo is None:
+            la, lo = coords.get((dn, norm(row["n"])), (None, None))
+        if la is not None and lo is not None:
+            row["xy"] = [round(float(la), 5), round(float(lo), 5)]
     bftypes = _vbt(bfp.get("formal"))
 
     tcp = _tcp(c)
@@ -205,10 +220,11 @@ def _district(c, bc, L: Labels, expected_booths: list[str], stats: dict):
         bname = p["pollingPlaceIdentifier"].get("name") or ""
         seen.add(norm(bname))
         row = {"n": bname, "f": f, "inf": _votes(pfp.get("informal")), "v": v}
+        put_xy(row, p["pollingPlaceIdentifier"])
         ptc = {x["candidateIdentifier"]["id"]: _votes(x) for x in (p.get("twoCandidatePreferred") or {}).get("candidate") or []}
         if tcp and sum(ptc.get(i, 0) for i in tcp_ids):
             row["tc"] = [ptc.get(i, 0) for i in tcp_ids]
-        bp = bbooths.get(norm(bname))
+        bp = base_booth(bname)
         if f:
             stats["booths"] += 1
         if bp is not None:
@@ -231,12 +247,14 @@ def _district(c, bc, L: Labels, expected_booths: list[str], stats: dict):
 
     # booths expected (from the polling locations file or the baseline) but not in yet
     waiting = []
+    expected_xy = ex.get("expected_xy", {}).get(dn)
     pool = expected_booths or [p["pollingPlaceIdentifier"].get("name") for p in _pp(bc or {})]
     for bname in pool:
         if norm(bname) in seen:
             continue
         row = {"n": bname, "f": 0, "v": [0] * len(cands), "w": 1}
-        bp = bbooths.get(norm(bname))
+        put_xy(row, (expected_xy or {}).get(norm(bname)))
+        bp = base_booth(bname)
         if bp is not None:
             bpv = _by_key((bp.get("firstPreferences") or {}).get("candidate") or [], ck)
             bpf = _votes((bp.get("firstPreferences") or {}).get("formal")) or sum(bpv.values())
@@ -482,7 +500,11 @@ def is_sample(data: dict[str, Any]) -> bool:
     return any(str(v).startswith("State2022") for v in (data.get("files") or {}).values())
 
 
-def build_model(cur: dict[str, Any], base: dict[str, Any] | None, status: str | None = None) -> dict[str, Any]:
+def build_model(cur: dict[str, Any], base: dict[str, Any] | None, status: str | None = None,
+                extras: dict[str, Any] | None = None) -> dict[str, Any]:
+    """extras (all optional, from local files, see load_extras): coords {(district, booth): (lat, lon)},
+    alias {(district, booth 2026): booth 2022}, targets {"districts": [...], "regions": [...]}."""
+    ex = dict(extras or {})
     L = Labels()
     base = base or {}
     stats = defaultdict(int)
@@ -491,7 +513,13 @@ def build_model(cur: dict[str, Any], base: dict[str, Any] | None, status: str | 
     expected: dict[str, list[str]] = {}
     for pd in ((cur.get("pollingLocations") or {}).get("pollingDistrictList") or {}).get("pollingDistrict") or []:
         nm = norm((pd.get("pollingDistrictIdentifier") or {}).get("name"))
-        expected[nm] = [p["pollingPlaceIdentifier"].get("name") for p in ((pd.get("pollingPlaces") or {}).get("pollingPlace") or [])]
+        pps = (pd.get("pollingPlaces") or {}).get("pollingPlace") or []
+        expected[nm] = [p["pollingPlaceIdentifier"].get("name") for p in pps]
+        for p in pps:
+            a = p.get("address") or {}
+            if a.get("addressLatitude") is not None and a.get("addressLongitude") is not None:
+                ex.setdefault("expected_xy", {}).setdefault(nm, {})[norm(p["pollingPlaceIdentifier"].get("name"))] = {
+                    "latitude": a["addressLatitude"], "longitude": a["addressLongitude"]}
 
     regions, rparts, src2id = [], {}, {}
     unmatched_regions, unmatched_districts = [], []
@@ -517,7 +545,7 @@ def build_model(cur: dict[str, Any], base: dict[str, Any] | None, status: str | 
         nm = norm((c.get("pollingDistrictIdentifier") or {}).get("name") or c["contestIdentifier"]["contestName"])
         if nm not in bdist and base:
             unmatched_districts.append(c["contestIdentifier"]["contestName"])
-        d, like, v, bv, bf = _district(c, bdist.get(nm), L, expected.get(nm, []), stats)
+        d, like, v, bv, bf = _district(c, bdist.get(nm), L, expected.get(nm, []), stats, ex)
         d["region"] = src2id.get(d.pop("regionId"))
         districts.append(d)
         parts.append((like, v, bv, bf))
@@ -546,6 +574,7 @@ def build_model(cur: dict[str, Any], base: dict[str, Any] | None, status: str | 
             "baseline": (bhf.get("eventIdentifier") or {}).get("eventName") if base else None,
             "baselineFile": (base.get("files") or {}).get("lowerHouse") if base else None,
             "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"), "status": status,
+            "targets": {k: [norm(x) for x in v] for k, v in (ex.get("targets") or {}).items()},
             "match": {"districts": len(districts), "districtsUnmatched": unmatched_districts,
                       "regionsUnmatched": unmatched_regions,
                       "booths": stats["booths"], "boothsMatched": stats["boothsMatched"],
@@ -561,3 +590,38 @@ def build_model(cur: dict[str, Any], base: dict[str, Any] | None, status: str | 
 def empty_model(status: str) -> dict[str, Any]:
     return {"meta": {"status": status, "waiting": True, "generated": datetime.now(timezone.utc).isoformat(timespec="seconds")},
             "parties": {}, "state": None, "regions": [], "districts": []}
+
+
+def load_extras(folder) -> dict[str, Any]:
+    """Optional local files in the data folder (git-ignored; none are needed):
+
+    venues-2026.csv / venues-2022.csv  voting centre lists with columns district, location,
+        lat, lon, and for 2026 match2022_district / match2022_location (booths renamed since 2022)
+    targets.json  {"districts": ["Footscray", ...], "regions": ["Northern Metropolitan", ...]}
+    """
+    import csv
+    import json
+    from pathlib import Path
+
+    folder = Path(folder)
+    ex: dict[str, Any] = {"coords": {}, "alias": {}}
+    for name in ("venues-2022.csv", "venues-2026.csv"):  # 2026 wins
+        f = folder / name
+        if not f.exists():
+            continue
+        with open(f, newline="", encoding="utf-8-sig") as fh:
+            for r in csv.DictReader(fh):
+                d, b = norm(r.get("district")), norm(r.get("location"))
+                if not d or not b:
+                    continue
+                try:
+                    ex["coords"][(d, b)] = (float(r["lat"]), float(r["lon"]))
+                except (KeyError, TypeError, ValueError):
+                    pass
+                d2, b2 = norm(r.get("match2022_district")), norm(r.get("match2022_location"))
+                if d2 == d and b2 and b2 != b:
+                    ex["alias"][(d, b)] = b2
+    t = folder / "targets.json"
+    if t.exists():
+        ex["targets"] = json.loads(t.read_text())
+    return ex

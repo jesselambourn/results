@@ -96,3 +96,21 @@ def test_build_site(tmp_path):
     build_site(_cur(), _base(), tmp_path)
     assert json.loads((tmp_path / "data.json").read_text())["districts"][0]["name"] == "Alpha"
     assert "<title>" in page_html()
+
+
+def test_extras_coords_alias_targets(tmp_path):
+    (tmp_path / "venues-2026.csv").write_text(
+        "district,location,lat,lon,match2022_district,match2022_location\n"
+        "Alpha,New Estate,-37.5,145.1,Alpha,Primary School\n"
+        "Alpha,Town Hall (HJVC),-37.6,145.2,Alpha,Town Hall\n"
+        "Alpha,Primary School,-37.7,145.3,Alpha,Primary School\n")
+    (tmp_path / "targets.json").write_text('{"districts": ["Alpha District"], "regions": ["North"]}')
+    from vicresults.dashboard import load_extras
+    ex = load_extras(tmp_path)
+    m = build_model(_cur(), _base(), extras=ex)
+    d = m["districts"][0]
+    by = {b["n"]: b for b in d["booths"]}
+    assert by["New Estate"]["xy"] == [-37.8, 144.9]  # the feed's own coordinates win
+    assert by["Primary School"]["xy"] == [-37.7, 145.3]  # not in yet: from the venue file
+    assert by["New Estate"]["bf"] == 600  # renamed booth now compared with its 2022 self
+    assert m["meta"]["targets"] == {"districts": ["alpha"], "regions": ["north"]}

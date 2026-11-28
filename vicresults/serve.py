@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from .dashboard import build_model, empty_model
+from .dashboard import build_model, empty_model, load_extras
 
 WEB = Path(__file__).parent / "web" / "index.html"
 SHELL = ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
@@ -54,10 +54,10 @@ def load_baseline(out: Path, client=None, path: Path | None = None, log=print) -
     return base, True
 
 
-def build_site(cur: dict[str, Any], base: dict[str, Any] | None, site: Path) -> None:
+def build_site(cur: dict[str, Any], base: dict[str, Any] | None, site: Path, extras=None) -> None:
     site.mkdir(parents=True, exist_ok=True)
     (site / "index.html").write_text(page_html(), encoding="utf-8")
-    (site / "data.json").write_text(json.dumps(build_model(cur, base), separators=(",", ":")), encoding="utf-8")
+    (site / "data.json").write_text(json.dumps(build_model(cur, base, extras=extras), separators=(",", ":")), encoding="utf-8")
 
 
 class State:
@@ -132,7 +132,7 @@ def serve(out: Path, port: int = 8000, host: str = "127.0.0.1", sample: str | No
 
     def show(data, _changed=None):
         try:
-            state.set_model(build_model(data, base))
+            state.set_model(build_model(data, base, extras=load_extras(out)))
         except Exception as e:  # never let a surprise in the feed kill the poller
             say(f"could not build the pages from this feed: {type(e).__name__}: {e}")
 

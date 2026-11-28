@@ -83,6 +83,15 @@ tbody tr:hover td { background: color-mix(in srgb, var(--track) 45%, transparent
 .flip { font-weight: 700 }
 .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 22px }
 .chart { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow-x: auto }
+.map { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0 }
+.map svg { display: block; width: 100%; max-width: 760px; height: auto; margin: 0 auto; background: var(--bg); border-radius: 6px }
+.map .leg { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); align-items: center }
+.map circle { stroke: var(--panel); stroke-width: 1 }
+.map circle.wt { fill: none; stroke: var(--muted); stroke-dasharray: 2 2 }
+.ramp { display: inline-block; width: 120px; height: 10px; border-radius: 2px; vertical-align: middle }
+.targets { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px }
+.targets .dial { border-color: var(--accent) }
+.targets .dial .t a { text-decoration: none }
 .chart svg { display: block; width: 100%; max-width: 780px; height: auto; min-width: 560px }
 .empty { background: var(--panel); border: 1px dashed var(--line); border-radius: 8px; padding: 28px; text-align: center; color: var(--muted) }
 .seg-g { display: inline-flex }
@@ -313,10 +322,78 @@ function tabs(cur) {
 function mainParties(rows, n) { var out = [], seen = {}; if (row(rows, ST.focus)) { out.push(ST.focus); seen[ST.focus] = 1; } rows.forEach(function (r) { if (out.length < n && !seen[r.k] && r.v) { out.push(r.k); seen[r.k] = 1; } }); return out; }
 function swingDials(rows, n, sub) { var ks = mainParties(rows, n), R = swingRange(ks.map(function (k) { return swOf(row(rows, k)); })); return ks.map(function (k) { var r = row(rows, k); return swingDial(k, swOf(r), R, chip(k, pname(k) + " " + p1(r.p) + "%"), sub); }).join(""); }
 
+/* ---------- targets ---------- */
+function shareDial(cur, base, k, title, sub) {
+  var max = Math.max(20, Math.ceil(Math.max(cur || 0, base || 0) / 10) * 10 + 10), ticks = [];
+  for (var i = 0; i <= 4; i++) ticks.push({ t: i / 4, label: String(max * i / 4) });
+  return dial(title, dialSvg({
+    aria: pname(k) + " " + p1(cur) + " percent", segs: cur == null ? [] : [{ t0: 0, t1: clamp(cur / max), col: pcol(k) }], ticks: ticks,
+    marks: base != null ? [{ t: clamp(base / max), title: "2022 final " + p1(base) + "%" }] : [], needle: cur == null ? null : cur / max,
+    value: cur == null ? "–" : p1(cur) + "%", unit: pshort(k) + " first preferences"
+  }), sub);
+}
+function targetsSection() {
+  var T = (M.meta && M.meta.targets) || {}, f = ST.focus, cards = [];
+  (T.districts || []).forEach(function (id) {
+    var d = distById(id); if (!d) return;
+    var c = dFocus(d), cur = c && d.formal ? c.p : null, sub = [];
+    if (cur != null) sub.push(sg(swOf(c)) + " swing");
+    sub.push(p1(pct(d.total, d.enrol)) + "% counted");
+    if (d.tcp && d.tcp.total) { var w = d.tcp.c[0].v >= d.tcp.c[1].v ? d.tcp.c[0] : d.tcp.c[1]; sub.push("2CP " + esc(pshort(w.k)) + " " + p1(w.p)); }
+    else if (d.lead) sub.push(esc(pshort(d.lead)) + " ahead");
+    cards.push(shareDial(cur, c ? c.bp : null, c ? c.k : f, '<a class="lnk" href="#d-' + d.id + '">' + esc(d.name) + "</a>", sub.join(" · ") + " · dashes: 2022"));
+  });
+  (T.regions || []).forEach(function (id) {
+    var r = regById(id); if (!r) return;
+    var x = row(r.upper.rows, f), q = x ? x.q : null, max = Math.max(2, Math.ceil((q || 0) + 0.25)), ticks = [];
+    for (var i = 0; i <= max * 2; i++) ticks.push({ t: i / (max * 2), label: i % 2 ? null : String(i / 2) });
+    cards.push(dial('<a class="lnk" href="#r-' + r.id + '">' + esc(r.name) + "</a>", dialSvg({
+      aria: r.name + " quotas", segs: q == null ? [] : [{ t0: 0, t1: clamp(q / max), col: pcol(f) }], ticks: ticks,
+      marks: [{ t: 1 / max, title: "One quota" }], needle: q == null ? null : q / max, value: q == null ? "–" : q.toFixed(2), unit: "quotas · " + p1(x ? x.p : null) + "%"
+    }), (x && r.upper.formal ? sg(swOf(x)) + " swing · " : "") + p1(pct(r.upper.total, r.upper.enrol)) + "% counted · dashes: one quota"));
+  });
+  if (!cards.length) return "";
+  return sec("Targets", '<div class="targets">' + cards.join("") + "</div>", "", esc(pname(f)) + " first preferences in each target district, and upper house quotas in each target region.");
+}
+
+/* ---------- booth map ---------- */
+ST.mapMode = "lead";
+function boothMap(rows, title) {
+  rows = rows.filter(function (r) { return r.b.xy; });
+  if (rows.length < 2) return "";
+  // frame on the middle 96% of booths so one far-off venue doesn't shrink the rest
+  function q(arr, f) { arr = arr.slice().sort(function (x, y) { return x - y; }); return arr[Math.min(arr.length - 1, Math.max(0, Math.round(f * (arr.length - 1))))]; }
+  var cut = rows.length > 30 ? 0.02 : 0, las = rows.map(function (r) { return r.b.xy[0]; }), los = rows.map(function (r) { return r.b.xy[1]; });
+  var la0 = q(las, cut), la1 = q(las, 1 - cut), lo0 = q(los, cut), lo1 = q(los, 1 - cut), dla = (la1 - la0) * 0.03, dlo = (lo1 - lo0) * 0.03;
+  la0 -= dla; la1 += dla; lo0 -= dlo; lo1 += dlo;
+  rows = rows.filter(function (r) { return r.b.xy[0] >= la0 && r.b.xy[0] <= la1 && r.b.xy[1] >= lo0 && r.b.xy[1] <= lo1; });
+  var k = Math.cos((la0 + la1) / 2 * Math.PI / 180), w = Math.max((lo1 - lo0) * k, 0.002), h = Math.max(la1 - la0, 0.002);
+  var W = 760, P = 18, iw = W - 2 * P, ih = Math.min(560, Math.max(220, iw * h / w)), sc = Math.min(iw / w, ih / h), H = ih + 2 * P;
+  var ox = P + (iw - w * sc) / 2, oy = P + (ih - h * sc) / 2, maxF = 1, maxP = 0;
+  rows.forEach(function (r) { maxF = Math.max(maxF, r.b.f || r.b.bf || 0); if (r.p != null) maxP = Math.max(maxP, r.p); });
+  maxP = Math.max(5, Math.ceil(maxP / 5) * 5);
+  var leads = {}, s = '<svg viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="' + esc(title) + '">';
+  rows.slice().sort(function (a, b) { return (b.b.f || 0) - (a.b.f || 0); }).forEach(function (r) {
+    var x = ox + (r.b.xy[1] - lo0) * k * sc, y = oy + (la1 - r.b.xy[0]) * sc, rad = 3 + 9 * Math.sqrt((r.b.f || r.b.bf || 0) / maxF), fill;
+    var tip = r.b.n + (r.d && rows.length > 40 ? " (" + r.d.name + ")" : "") + ": " + (r.b.f ? n0(r.b.f) + " formal, " + (r.lk ? pname(r.lk) + " ahead " + p1(r.lp) + "%" : "") + (r.p != null ? ", " + pname(ST.focus) + " " + p1(r.p) + "%" + (r.sw != null ? " (" + sg(r.sw) + ")" : "") : "") : "not in yet");
+    if (!r.b.f) { s += '<circle class="wt" cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="' + rad.toFixed(1) + '"><title>' + esc(tip) + "</title></circle>"; return; }
+    if (ST.mapMode === "lead") { fill = pcol(r.lk); leads[aggKey(r.lk)] = 1; }
+    else fill = r.p == null ? "var(--track)" : "color-mix(in srgb, " + pcol(ST.focus) + " " + Math.round(12 + 88 * Math.min(1, r.p / maxP)) + "%, var(--panel))";
+    s += '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="' + rad.toFixed(1) + '" fill="' + fill + '"><title>' + esc(tip) + "</title></circle>";
+  });
+  s += "</svg>";
+  var leg = ST.mapMode === "lead" ? Object.keys(leads).map(function (q) { return chip(q, pshort(q)); }).join("") + " ahead"
+    : '0% <span class="ramp" style="background:linear-gradient(90deg, color-mix(in srgb, ' + pcol(ST.focus) + ' 12%, var(--panel)), ' + pcol(ST.focus) + ')"></span> ' + maxP + "% " + esc(pname(ST.focus));
+  var btn = '<span class="seg-g" role="group" aria-label="Colour booths by"><button class="seg' + (ST.mapMode === "lead" ? " on" : "") + '" data-map="lead">Party ahead</button><button class="seg' + (ST.mapMode === "share" ? " on" : "") + '" data-map="share">' + esc(pshort(ST.focus)) + " share</button></span>";
+  return '<div class="map"><div class="leg">' + btn + leg + " · size: formal votes · dashed: not in yet</div>" + s + "</div>";
+}
+document.addEventListener("click", function (e) { var b = e.target.closest && e.target.closest("button[data-map]"); if (b) { ST.mapMode = b.getAttribute("data-map"); var y = window.scrollY; render(); window.scrollTo(0, y); } });
+
 /* ---------- views ---------- */
 function vState() {
   var lo = M.state.lower, up = M.state.upper, f = ST.focus;
   var h = tabs("state") + '<div class="head"><h2>Victoria</h2><span class="sub">' + n0(lo.total) + " lower house votes counted · " + lo.seatsIn + " of " + lo.n + " districts reporting</span></div>";
+  h += targetsSection();
   h += sec("Lower house", '<div class="dials">' + countDial(lo) + swingDials(lo.rows, 5) + "</div>", "", "Dials show the first preference swing since 2022, in percentage points. " + (ST.mode === "sw" ? "Like-for-like: only booths and vote types counted so far, against the same ones in 2022." : "Current share minus the final 2022 share. Early in the count this mostly reflects which booths are in."));
   h += sec("Lower house first preferences", partyTable("s-lo", lo.rows, lo, true));
   var swb = sec(esc(pname(f)) + " by district", swingBars(M.districts.map(function (d) { var c = dFocus(d); return { n: d.name, sw: d.formal ? swOf(c) : null, tip: c ? p1(c.p) + "% now" : "" }; }), f, "Swing by district") || '<div class="empty">No district has a ' + esc(pname(f)) + " swing to show yet.</div>", "", "First preference swing in each district where " + esc(pname(f)) + " is standing and votes are in (" + swLabel() + ").");
@@ -357,6 +434,7 @@ function vRegion(r) {
   var h = '<div class="head"><div><h2>' + esc(r.name) + ' Region</h2><div class="crumbs"><a class="lnk" href="#state">Victoria</a> › <a class="lnk" href="#regions">Regions</a> › ' + esc(r.name) + '</div></div><span class="sub">' + n0(u.total) + " upper house votes counted · " + u.positions + " seats" + (u.quota ? " · quota " + n0(u.quota) + " (" + esc(u.quotaSrc) + ")" : "") + "</span></div>";
   h += sec("Upper house", '<div class="dials">' + countDial(u) + (fr ? quotaDial(fr, u.positions) : "") + swingDials(u.rows, 4) + "</div>" + partyTable("r-up", u.rows, u, false, true));
   h += sec("Lower house across the region", '<div class="dials">' + countDial(r.lower, "Lower house counted") + swingDials(r.lower.rows, 4) + "</div>" + partyTable("r-lo", r.lower.rows, r.lower, true), "", "The 11 lower house districts in this region, added together.");
+  h += sec("Booth map", boothMap(boothRows(ds), r.name + " booths") || '<div class="empty">No booth locations yet.</div>', "", "Lower house election day booths in this region's districts. Hover a dot for its numbers.");
   h += sec("Districts in this region", districtTable("r-d", ds));
   var fi = u.keys.indexOf(f), k = fi >= 0 ? f : (u.rows[0] ? u.rows[0].k : null); if (fi < 0 && k) fi = u.keys.indexOf(k);
   var br = u.booths.map(function (b) { var p = b.f ? pct(b.v[fi], b.f) : null, bp = b.bv ? pct(b.bv[fi], b.bf) : null; return { b: b, p: p, bp: bp, sw: p != null && bp != null ? p - bp : null }; });
@@ -411,6 +489,7 @@ function vDistrict(d) {
   ], d.types), "", "Shares are for " + esc(pname(tk)) + ".");
   var saved = ST.focus; if (!fc && tk) ST.focus = aggKey(tk);
   var br = boothRows([d]);
+  h += sec("Booth map", boothMap(br, d.name + " booths") || '<div class="empty">No booth locations yet.</div>', "", "Hover a dot for its numbers.");
   h += sec("Booths", swingBars(br.map(function (r) { return { n: r.b.n, sw: r.sw, tip: p1(r.p) + "% now, " + p1(r.bp) + "% in 2022" }; }), ST.focus, "Booth swings") + boothTable("d-b", br, false), "", esc(pname(ST.focus)) + " first preferences at each booth against the same booth in 2022. Booths marked “not in” show their 2022 numbers only.");
   // every candidate at every booth
   h += sec("All candidates by booth", table("d-ba", [{ h: "Booth", l: 1, cls: "name", v: function (b) { return b.n; }, r: function (b) { return esc(b.n); } }, { h: "Formal", v: function (b) { return b.f; }, r: function (b) { return n0(b.f); } }].concat(d.cands.map(function (c, i) {
