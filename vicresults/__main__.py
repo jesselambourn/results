@@ -7,7 +7,7 @@
   poll [--out DIR] [--sample S] [--until HH:MM] [--once]
   serve [--out DIR] [--port N] [--sample S | --file F] [--until HH:MM]
                                      poll and show the results pages locally
-  build [--sample S | --file F] [--site DIR] [--out DIR]
+  build [--sample S | --file F] [--site DIR] [--out DIR] [--scope FILE]
                                      write a static copy of the pages
 """
 
@@ -95,6 +95,7 @@ def main(argv=None) -> int:
     bd.add_argument("--out", default="data")
     bd.add_argument("--site", default="site")
     bd.add_argument("--baseline")
+    bd.add_argument("--scope", help='JSON file {"title", "name", "regions": [...], "targets": {...}} to build a page for some regions only')
     for q in (sv, bd):
         g = q.add_mutually_exclusive_group()
         g.add_argument("--sample", choices=SAMPLES)
@@ -150,7 +151,12 @@ def main(argv=None) -> int:
             client = None if args.baseline or (Path(args.out) / "baseline-2022-final.json.gz").exists() else AnalysisClient()
             base, _ = load_baseline(Path(args.out), client, Path(args.baseline) if args.baseline else None)
             from .dashboard import load_extras
-            build_site(cur, base, Path(args.site), load_extras(Path(args.out)))
+            ex = load_extras(Path(args.out))
+            if args.scope:
+                import json as _json
+                ex["scope"] = _json.loads(Path(args.scope).read_text())
+                ex.pop("targets", None)
+            build_site(cur, base, Path(args.site), ex)
             print(f"wrote {args.site}/index.html and {args.site}/data.json")
     except AnalysisError as e:
         print(f"API error {e}", file=sys.stderr)
